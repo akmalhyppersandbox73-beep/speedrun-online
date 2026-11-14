@@ -4,13 +4,17 @@
    - WebSocket relay + room manager (HOST AUTHORITY: the host runs the game
      simulation, this server only manages rooms and forwards messages).
    - Also serves index.html so ONE deployment (one URL) hosts game + backend.
-   - In-memory only, no database, no secrets in the source code.
+   - Rooms are in memory (a restart closes live rooms), but accounts + the GLOBAL LEADERBOARD live in PostgreSQL
+     (DATABASE_URL, see db.js / README). No secrets are stored in the source code.
    Run:  npm install && npm start
    ========================================================================== */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
+const db = require('./db');
+const auth = require('./auth');
+const tour = require('./tournament');
 
 /* ---------------- configuration (all via environment variables) ---------------- */
 function envInt(name, def, min, max) {
@@ -52,7 +56,8 @@ const ipCount = new Map();     // ip -> open connections
 const startedAt = Date.now();
 
 /* room = { id, name, pub, max, status, mode, map, hostName,
-            host: { cid, ws, timer }, members: Map(cid -> { cid, ws, timer }), created } */
+            host: { cid, ws, timer, userId }, members: Map(cid -> { cid, ws, timer, userId }), created,
+            pidMap: Map(game player id -> cid), tour: tournament tracker (see tournament.js) } */
 
 /* ---------------- helpers ---------------- */
 function now() { return Date.now(); }
@@ -181,7 +186,7 @@ function hCreate(ws, m) {
   const room = {
     id, name: cleanText(m.name, 24, hostName + "'s Server"), pub: m.pub !== false && m.pub !== 0 && m.pub !== 'private',
     max, status: 'waiting', mode: cleanText(m.mode, 24, 'Single Round'), map: cleanText(m.map, 24, ''), hostName,
-    host: { cid: m.cid, ws, timer: null }, members: new Map(), created: now()
+    host: { cid: m.cid, ws, timer: null, userId: ctx.userId || null }, members: new Map(), created: now(), pidMap: new Map(), tour: null
   };
   rooms.set(id, room);
   ctx.room = room; ctx.role = 'host';
@@ -206,6 +211,7 @@ function hJoin(ws, m) {
     clearTimeout(existing.timer);
     const old = existing.ws;
     existing.ws = ws;
+    existing.userId = ctx.userId || null;
     if (old && old !== ws) {
       if (old.ctx) { old.ctx.room = null; old.ctx.role = null; }
       send(old, { k: 'kicked', why: 'dup' });
@@ -217,7 +223,7 @@ function hJoin(ws, m) {
   if (playerCount(room) >= room.max) return sendErr(ws, 'full', 'This server is full.');
   leaveRoom(ws, true);
   ctx.cid = m.cid;
-  room.members.set(m.cid, { cid: m.cid, ws, timer: null });
+  room.members.set(m.cid, { cid: m.cid, ws, timer: null, userId: ctx.userId || null });
   ctx.room = room; ctx.role = 'guest';
   send(ws, { k: 'joined', id: room.id, name: room.name, pub: room.pub, max: room.max, host: room.hostName, resumed: false });
   send(room.host.ws, { k: 'peer', c: m.cid });
@@ -231,6 +237,7 @@ function hResume(ws, m) {            // host reconnects to his own room
   clearTimeout(room.host.timer);
   const old = room.host.ws;
   room.host.ws = ws;
+  room.host.userId = ctx.userId || null;
   if (old && old !== ws) { if (old.ctx) { old.ctx.room = null; old.ctx.role = null; } send(old, { k: 'kicked', why: 'dup' }); }
   ctx.cid = m.cid; ctx.room = room; ctx.role = 'host';
   send(ws, { k: 'resumed', id: room.id, members: Array.from(room.members.keys()) });
@@ -266,12 +273,14 @@ function hostOnly(ws) {
 function hTo(ws, m) {                // host -> one guest
   const room = hostOnly(ws); if (!room) return;
   if (!validGame(m.d, HOST_TYPES)) return;
+  if (m.d.t === 'welcome') { try { tour.noteWelcome(room, String(m.c), m.d); } catch (e) { /* never break the relay */ } }
   const mem = room.members.get(String(m.c));
   if (mem) send(mem.ws, { k: 'data', d: m.d });
 }
 function hAll(ws, m) {               // host -> every guest (serialize once)
   const room = hostOnly(ws); if (!room) return;
   if (!validGame(m.d, HOST_TYPES)) return;
+  try { watchTournament(room, m.d); } catch (e) { log('tournament watch error', e && e.message); }   // never breaks the relay
   const payload = JSON.stringify({ k: 'data', d: m.d });
   for (const mem of room.members.values()) {
     const w = mem.ws;
@@ -286,8 +295,61 @@ function hLeave(ws) { leaveRoom(ws, true); }
 function hPing(ws, m) { send(ws, { k: 'pong', ts: typeof m.ts === 'number' ? m.ts : 0 }); }
 function hList(ws) { send(ws, { k: 'list', rooms: publicList() }); }
 
+/* ---------------- accounts over the WebSocket + Global Leaderboard PTS ---------------- */
+/* The client sends its login token once per connection. The user id is taken from the signed token, never from the client. */
+function hAuth(ws, m) {
+  const ctx = ws.ctx;
+  const uid = typeof m.tok === 'string' ? auth.verifyToken(m.tok) : null;
+  ctx.userId = uid || null;
+  const room = ctx.room;
+  if (room && ctx.cid) {                                   // logged in / out while inside a room
+    if (ctx.role === 'host' && room.host.ws === ws) room.host.userId = ctx.userId;
+    else if (ctx.role === 'guest') { const mem = room.members.get(ctx.cid); if (mem && mem.ws === ws) mem.userId = ctx.userId; }
+  }
+  send(ws, { k: 'authed', ok: !!uid });
+}
+
+/* Called for every host -> guests broadcast. Only start / end / toLobby matter for the leaderboard. */
+function watchTournament(room, d) {
+  if (d.t === 'start') tour.onStart(room, d.info, now());
+  else if (d.t === 'toLobby') room.tour = null;
+  else if (d.t === 'end') {
+    const st = tour.onEnd(room, d.tr, now());
+    if (st) settleTournament(room, st);
+  }
+}
+function wsOfCid(room, cid) {
+  if (cid === room.host.cid) return room.host.ws;
+  const mem = room.members.get(cid);
+  return mem ? mem.ws : null;
+}
+/* A finished online tournament: add PTS to the accounts (database, idempotent) and tell each player. */
+function settleTournament(room, st) {
+  log('tournament finished', st.tournamentId, 'rounds=' + st.rounds, 'humans=' + st.humans, st.ok ? ('awards=' + st.awards.length) : 'not counted (too few humans)');
+  if (!st.ok) return;
+  const targets = st.awards.map(a => ({ a, ws: wsOfCid(room, a.cid) }));
+  const guests = st.guests.map(g => wsOfCid(room, g.cid));
+  for (const w of guests) send(w, { k: 'tnote', code: 'login' });
+  if (!db.isReady()) { for (const t of targets) send(t.ws, { k: 'tnote', code: 'nodb' }); return; }
+  (async () => {
+    for (const t of targets) {
+      try {
+        const r = await db.awardTournament({ tournamentId: st.tournamentId, userId: t.a.userId, pts: t.a.pts,
+          rounds: st.rounds, placings: t.a.placings, humans: st.humans });
+        if (r.awarded) {
+          lbCache.at = 0;                                  // leaderboard changed: next read is fresh
+          send(t.ws, { k: 'tpts', gained: t.a.pts, total: r.total, rounds: st.rounds });
+        } else if (r.reason === 'rate_limited') send(t.ws, { k: 'tnote', code: 'limit' });
+      } catch (e) {
+        log('award failed', t.a.userId, e && e.message);
+        send(t.ws, { k: 'tnote', code: 'error' });
+      }
+    }
+  })();
+}
+
 const HANDLERS = { create: hCreate, join: hJoin, resume: hResume, upd: hUpdate, data: hData, to: hTo, all: hAll,
-  kick: hKick, leave: hLeave, ping: hPing, list: hList };
+  kick: hKick, leave: hLeave, ping: hPing, list: hList, auth: hAuth };
 
 function onMessage(ws, raw, isBinary) {
   const ctx = ws.ctx;
@@ -308,20 +370,137 @@ function onMessage(ws, raw, isBinary) {
   try { h(ws, m); } catch (e) { log('handler error', m.k, e && e.message); }
 }
 
-/* ---------------- HTTP (static game files + health) ---------------- */
+/* ---------------- HTTP (static game files + health + account / leaderboard API) ---------------- */
+function corsHeaders(req) {
+  const origin = req.headers.origin;
+  const h = { 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '600', 'Vary': 'Origin' };
+  if (ALLOWED_ORIGINS.length) { if (origin && ALLOWED_ORIGINS.includes(origin)) h['Access-Control-Allow-Origin'] = origin; }
+  else h['Access-Control-Allow-Origin'] = '*';                       // tokens travel in a header (no cookies), so '*' is safe
+  return h;
+}
 function sendJson(res, code, obj, extra) {
   const body = JSON.stringify(obj);
   res.writeHead(code, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
     'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' }, extra || {}));
   res.end(body);
 }
+function apiErr(req, res, code, errCode, msg) { sendJson(res, code, { ok: false, code: errCode, msg }, corsHeaders(req)); }
+function readJson(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > max) { reject(new Error('too_big')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch (e) { reject(new Error('bad_json')); } });
+    req.on('error', reject);
+  });
+}
+function bearerUser(req) {
+  const h = String(req.headers.authorization || '');
+  const m = /^Bearer\s+(\S+)$/i.exec(h);
+  return m ? auth.verifyToken(m[1]) : null;                           // user id string or null
+}
+function dbGate(req, res) {
+  if (db.isReady() && auth.hasSecret()) return true;
+  if (!db.enabled()) apiErr(req, res, 503, 'no_db', 'The Global Leaderboard is not set up on this server (no database configured).');
+  else apiErr(req, res, 503, 'db_down', 'The leaderboard database is not reachable right now. Please try again in a moment.');
+  return false;
+}
+
+/* Top-100 cache: 3 s lifetime, concurrent requests share ONE query, and it is cleared whenever PTS change. */
+const lbCache = { at: 0, data: null, pending: null };
+const LB_TTL_MS = 3000;
+async function leaderboardTop() {
+  const t = now();
+  if (lbCache.data && t - lbCache.at < LB_TTL_MS) return lbCache.data;
+  if (lbCache.pending) return lbCache.pending;
+  lbCache.pending = (async () => {
+    try {
+      const [top, total] = await Promise.all([db.topPlayers(100), db.rankedCount()]);
+      lbCache.data = { top, total, updatedAt: new Date().toISOString() };
+      lbCache.at = now();
+      return lbCache.data;
+    } finally { lbCache.pending = null; }
+  })();
+  return lbCache.pending;
+}
+
+async function handleApi(req, res, pathname, ip) {
+  const cors = corsHeaders(req);
+  if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+  if (ALLOWED_ORIGINS.length && req.headers.origin && !ALLOWED_ORIGINS.includes(req.headers.origin)) return apiErr(req, res, 403, 'origin', 'Origin not allowed.');
+  if (!auth.rateHit('api:' + ip, 240, 60000)) return apiErr(req, res, 429, 'rate', 'Too many requests. Please slow down.');
+  try {
+    /* ---- public: Top 100 (never contains players outside the Top 100) ---- */
+    if (pathname === '/api/leaderboard' && req.method === 'GET') {
+      if (!dbGate(req, res)) return;
+      const d = await leaderboardTop();
+      return sendJson(res, 200, { ok: true, top: d.top, total: d.total, updatedAt: d.updatedAt }, cors);
+    }
+    /* ---- my own rank + PTS (separate small request, needs login) ---- */
+    if (pathname === '/api/leaderboard/me' && req.method === 'GET') {
+      if (!dbGate(req, res)) return;
+      const uid = bearerUser(req);
+      if (!uid) return apiErr(req, res, 401, 'auth', 'Please log in again.');
+      const [me, total] = await Promise.all([db.playerRank(uid), leaderboardTop().then(d => d.total)]);
+      if (!me) return apiErr(req, res, 401, 'auth', 'Account not found. Please log in again.');
+      return sendJson(res, 200, { ok: true, username: me.username, pts: me.pts, rank: me.rank, total }, cors);
+    }
+    if (pathname === '/api/auth/me' && req.method === 'GET') {
+      if (!dbGate(req, res)) return;
+      const uid = bearerUser(req);
+      const u = uid ? await db.getUserById(uid) : null;
+      if (!u) return apiErr(req, res, 401, 'auth', 'Please log in again.');
+      return sendJson(res, 200, { ok: true, user: { id: String(u.id), username: u.username } }, cors);
+    }
+    if ((pathname === '/api/auth/register' || pathname === '/api/auth/login') && req.method === 'POST') {
+      if (!dbGate(req, res)) return;
+      let body;
+      try { body = await readJson(req, 2048); } catch (e) { return apiErr(req, res, 400, 'bad_request', 'Invalid request.'); }
+      const uc = auth.checkUsername(body.username);
+      const pc = auth.checkPassword(body.password);
+      if (pathname === '/api/auth/register') {
+        if (!auth.rateHit('reg:' + ip, 10, 3600 * 1000)) return apiErr(req, res, 429, 'rate', 'Too many new accounts from this network. Try again later.');
+        if (!uc.ok) return apiErr(req, res, 400, 'bad_username', uc.msg);
+        if (!pc.ok) return apiErr(req, res, 400, 'bad_password', pc.msg);
+        const hash = await auth.hashPassword(pc.value);
+        try {
+          const u = await db.createUser(uc.value, hash);
+          return sendJson(res, 201, { ok: true, token: auth.makeToken(u.id), user: { id: String(u.id), username: u.username } }, cors);
+        } catch (e) {
+          if (e && e.code === 'TAKEN') return apiErr(req, res, 409, 'taken', 'That username is already taken.');
+          throw e;
+        }
+      }
+      /* login */
+      if (!auth.rateHit('login:' + ip, 40, 15 * 60 * 1000)) return apiErr(req, res, 429, 'rate', 'Too many login attempts. Try again in a few minutes.');
+      if (!uc.ok || !pc.ok) return apiErr(req, res, 401, 'bad_credentials', 'Wrong username or password.');
+      if (!auth.rateHit('loginu:' + uc.value.toLowerCase(), 10, 15 * 60 * 1000)) return apiErr(req, res, 429, 'rate', 'Too many attempts for this account. Try again in a few minutes.');
+      const u = await db.getUserByName(uc.value);
+      let ok = false;
+      if (u) ok = await auth.verifyPassword(pc.value, u.pass_hash); else await auth.burnTime(pc.value);
+      if (!ok) return apiErr(req, res, 401, 'bad_credentials', 'Wrong username or password.');
+      db.touchLogin(u.id);
+      return sendJson(res, 200, { ok: true, token: auth.makeToken(u.id), user: { id: String(u.id), username: u.username } }, cors);
+    }
+    return apiErr(req, res, 404, 'not_found', 'Unknown API endpoint.');
+  } catch (e) {
+    if (e && e.code === 'NO_DB') return apiErr(req, res, 503, 'db_down', 'The leaderboard database is not reachable right now. Please try again in a moment.');
+    log('api error', pathname, e && e.message);
+    return apiErr(req, res, 500, 'server', 'Server error. Please try again.');
+  }
+}
 
 const server = http.createServer((req, res) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }); return res.end(); }
   let pathname;
   try { pathname = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch (e) { res.writeHead(400); return res.end(); }
+  if (pathname.startsWith('/api/') && pathname !== '/api/servers') {
+    return handleApi(req, res, pathname, clientIp(req)).catch(e => { log('api crash', e && e.message); try { res.writeHead(500); res.end(); } catch (e2) { /* ignore */ } });
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }); return res.end(); }
   if (pathname === '/health') {
-    return sendJson(res, 200, { ok: true, uptime: Math.round((now() - startedAt) / 1000), rooms: rooms.size, clients: wss.clients.size });
+    const d = db.status();
+    return sendJson(res, 200, { ok: true, uptime: Math.round((now() - startedAt) / 1000), rooms: rooms.size, clients: wss.clients.size,
+      leaderboard: { configured: d.configured, ready: d.ready } });
   }
   if (pathname === '/api/servers') return sendJson(res, 200, { servers: publicList() });
   if (pathname === '/') pathname = '/index.html';
@@ -367,7 +546,7 @@ wss.on('connection', ws => {
   ipCount.set(ip, (ipCount.get(ip) || 0) + 1);
   ws.alive = true;
   ws.ctx = {
-    cid: null, room: null, role: null, strikes: 0, lastCreate: 0,
+    cid: null, room: null, role: null, strikes: 0, lastCreate: 0, userId: null,
     rate: { tokens: MSG_BURST, cap: MSG_BURST, rate: MSG_RATE, t: now() },
     chat: { tokens: 4, cap: 4, rate: 0.7, t: now() }              // chat: burst 4, then ~1 message / 1.4 s
   };
@@ -404,6 +583,9 @@ const sweeper = setInterval(() => {
   }
 }, 30000);
 
+/* database (accounts + leaderboard). Never blocks the game server: it connects in the background and retries. */
+db.init(secret => auth.setSecret(secret)).catch(e => log('db init error', e && e.message));
+
 server.listen(PORT, HOST, () => {
   log('Speedrun multiplayer server listening on ' + HOST + ':' + PORT + ' (max ' + MAX_PLAYERS_CAP + ' players/room)');
 });
@@ -412,7 +594,7 @@ function shutdown() {
   log('shutting down');
   clearInterval(heartbeat); clearInterval(sweeper);
   for (const ws of wss.clients) { try { ws.close(1001, 'server restart'); } catch (e) { /* ignore */ } }
-  server.close(() => process.exit(0));
+  server.close(() => { db.close().finally(() => process.exit(0)); });
   setTimeout(() => process.exit(0), 3000).unref();
 }
 process.on('SIGTERM', shutdown);

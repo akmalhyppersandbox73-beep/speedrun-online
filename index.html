@@ -32,7 +32,7 @@ h3{margin:0 0 10px;font-size:clamp(16px,3.6vh,22px);color:#ffe45e;letter-spacing
 .chip{flex:1;padding:8px;border-radius:8px;border:2px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#fff;font-weight:700;cursor:pointer}
 .chip.sel{border-color:#37d36b;background:rgba(55,211,107,.2)}
 input[type=range]{width:100%}
-input[type=text]{width:100%;padding:10px;border-radius:8px;border:2px solid #3f6f99;background:#0a1c30;color:#fff;font-size:16px;-webkit-user-select:text;user-select:text}
+input[type=text],input[type=password]{width:100%;padding:10px;border-radius:8px;border:2px solid #3f6f99;background:#0a1c30;color:#fff;font-size:16px;-webkit-user-select:text;user-select:text}
 .hint{font-size:11px;opacity:.7;line-height:1.5;margin-top:8px}
 .code{font-family:Consolas,monospace;font-size:clamp(28px,7vh,46px);letter-spacing:8px;color:#ffe45e;background:rgba(0,0,0,.35);border-radius:10px;padding:4px 10px;display:inline-block;margin:6px 0}
 .plist{list-style:none;margin:6px 0;padding:0;text-align:left}
@@ -71,6 +71,28 @@ details.adv summary{cursor:pointer;font-size:12px;letter-spacing:1px;color:#9fd2
 details.adv .btn.inline{margin:6px 5px 2px 0;padding:7px 12px;font-size:13px;min-width:0}
 .plist li .pk{float:right;opacity:.6;font-size:11px}
 .seqrow{display:flex;align-items:center;gap:8px;margin:5px 0}.seqrow span{min-width:70px;font-size:13px;font-weight:700}.seqrow select{flex:1;padding:8px;border-radius:8px;border:2px solid #3f6f99;background:#0a1c30;color:#fff;font-size:14px}
+/* ---- Global Leaderboard ---- */
+.lbbar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin:2px 0 4px}
+.lbbar .btn.inline{margin:2px 0;padding:7px 14px;font-size:14px;min-width:0}
+.lblist{min-height:120px;max-height:min(44vh,400px);background:rgba(0,0,0,.18);border:1px solid rgba(160,220,255,.2);border-radius:10px;padding:2px 6px}
+.lblist table.res{margin:2px 0}
+.lblist table.res th{position:sticky;top:0;background:#0b2340;z-index:1}
+.lblist table.res td.pt,.lblist table.res th.pt{text-align:right;font-family:Consolas,monospace;font-weight:800;color:#ffe45e}
+.lblist table.res td.un{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbspin{display:inline-block;width:26px;height:26px;border:4px solid rgba(160,220,255,.25);border-top-color:#7fd4ff;border-radius:50%;animation:lbsp .8s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes lbsp{to{transform:rotate(360deg)}}
+.lbmsg{padding:26px 10px;text-align:center;font-size:14px;opacity:.9;line-height:1.5}
+.lbmsg.err{color:#ff9d92;opacity:1}
+#lbMe{margin:8px 0 2px;padding:10px 12px;background:rgba(55,211,107,.14);border:1px solid rgba(55,211,107,.5);border-radius:10px;text-align:left}
+#lbMe .mrow{display:flex;gap:34px;align-items:baseline;justify-content:center;flex-wrap:wrap}
+#lbMe .mrow div{font-size:12px;letter-spacing:2px;color:#9fd2ff}
+#lbMe .mrow b{display:block;font-size:clamp(20px,4vh,28px);color:#ffe45e;letter-spacing:1px;font-family:Consolas,monospace}
+#lbMe .who{text-align:center;font-size:12px;opacity:.8;margin-top:4px}
+#lbMe.off{background:rgba(255,255,255,.07);border-color:rgba(160,220,255,.3);text-align:center}
+#lbAuthBox{margin:8px 0;padding:10px 12px;background:rgba(255,255,255,.06);border-radius:10px;text-align:left}
+#lbAuthBox input{margin:4px 0}
+#lbAuthMsg{min-height:16px;font-size:12px;color:#ff9d92;margin-top:4px}
+#lbAuthMsg.ok{color:#7dffa6}
 table.res{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
 table.res td,table.res th{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.12);text-align:left}
 table.res tr.me td{background:rgba(55,211,107,.18)}
@@ -320,10 +342,11 @@ canvas#gl.grab.dragging{cursor:grabbing}
 
 <div id="s-menu" class="screen"><div class="panel">
   <h1>SPEEDRUN</h1><h2>ESCAPE FROM TSUNAMI</h2>
-  <div class="hint" style="margin:0 0 6px">Playing as <b id="mName"></b> &bull; <span class="cico"></span> <b id="mCoins">0</b> coins</div>
+  <div class="hint" style="margin:0 0 6px">Playing as <b id="mName"></b> &bull; <span class="cico"></span> <b id="mCoins">0</b> coins<br>&#127760; Global account: <b id="mAcct">Not logged in</b></div>
   <button class="btn go" data-act="sp">&#9654; Singleplayer (With Bot)</button>
   <button class="btn tour" data-act="tutorial">&#128214; TUTORIAL</button>
   <button class="btn" data-act="mp">&#127760; Multiplayer (Online)</button>
+  <button class="btn tour" data-act="lb">&#127942; GLOBAL LEADERBOARD</button>
   <button class="btn tour" data-act="shop">&#128722; SHOP</button>
   <button class="btn" data-act="inv">&#127890; INVENTORY</button>
   <button class="btn alt" data-act="settings">&#9881; Settings</button>
@@ -406,6 +429,24 @@ canvas#gl.grab.dragging{cursor:grabbing}
   <button class="btn tour" data-act="shopLobby">&#128722; SHOP</button>
   <button class="btn" data-act="invLobby">&#127890; INVENTORY</button>
   <button class="btn alt" data-act="leave">Leave</button>
+</div></div>
+
+<div id="s-lb" class="screen hide"><div class="panel wide">
+  <h3>&#127942; GLOBAL LEADERBOARD</h3>
+  <div class="hint" style="margin:0 0 6px">Top 100 players worldwide, ranked by total PTS from finished <b>online Tournaments</b>.</div>
+  <div class="lbbar"><button class="btn go inline" id="lbRefresh" data-act="lbRefresh" type="button">&#8635; REFRESH</button><span class="hint" id="lbUpd" style="margin:0"></span></div>
+  <div class="srvlist lblist" id="lbList"><div class="lbmsg"><span class="lbspin"></span>Loading leaderboard...</div></div>
+  <div id="lbMe" class="off"></div>
+  <div id="lbAuthBox" class="hide">
+    <div class="lbl">USERNAME</div>
+    <input type="text" id="lbUser" maxlength="16" placeholder="3-16 letters / numbers / _" autocomplete="username" autocapitalize="off" spellcheck="false">
+    <div class="lbl" style="margin-top:6px">PASSWORD</div>
+    <input type="password" id="lbPass" maxlength="72" placeholder="at least 6 characters" autocomplete="current-password">
+    <div class="srvbar" style="margin-top:6px"><button class="btn go inline" data-act="lbLogin" type="button">LOG IN</button><button class="btn inline" data-act="lbRegister" type="button">CREATE ACCOUNT</button></div>
+    <div id="lbAuthMsg"></div>
+  </div>
+  <div class="hint">Log in with a global account <b>before</b> playing an online Tournament so your PTS are saved. Single Round, offline games vs bots and unfinished Tournaments never add PTS.</div>
+  <button class="btn alt" data-act="lbBack">Back</button>
 </div></div>
 
 <div id="s-settings" class="screen hide"><div class="panel">
@@ -4791,6 +4832,7 @@ function tourFinal(){
     }
   }
   if(log)h+='<div class="logbox"><div class="lbl">YOUR ROUND LOG</div>'+log+'</div>';
+  h+=lbGainHtml();
   var champ=arr[0],won=champ&&champ.id===myId;
   $('resTitle').textContent=won?'🏆 YOU WON THE TOURNAMENT!':'🏆 '+(champ?champ.name.toUpperCase():'')+' WINS THE TOURNAMENT';
   $('resTitle').style.color=won?'#ffe45e':'#9fd2ff';
@@ -5623,6 +5665,7 @@ function mpSend(o,gm){   /* never blocks the game: drops fast position updates w
 }
 function mpGreeted(){
   MP.lastPong=performance.now();
+  lbWsAuth();   /* tell the server which global account this connection belongs to (before create / join / resume) */
   if(MP.roomId){   /* we were inside a room when the link dropped: re-attach to it */
     MP.rejoin=true;
     mpRaw(MP.role==='host'?{k:'resume',cid:mpCid(),id:MP.roomId}:{k:'join',cid:mpCid(),id:MP.roomId,name:S.name});
@@ -5687,6 +5730,9 @@ function mpMsg(raw){
   }
   else if(k==='pong'){var rt=performance.now()-(+m.ts||0);if(rt>=0&&rt<60000)MP.ping=Math.round(rt);MP.lastPong=performance.now();mpPillUpdate();}
   else if(k==='list')srvRender(m.rooms||[]);
+  else if(k==='tpts')lbOnGain(m);
+  else if(k==='tnote')lbOnNote(m);
+  else if(k==='authed'){/* login state of this connection acknowledged */}
   else if(k==='created')mpOnCreated(m);
   else if(k==='joined')mpOnJoined(m);
   else if(k==='resumed')mpOnResumed(m);
@@ -6129,7 +6175,7 @@ function goMenu(){
   leaveNet();
   G.mode='menu';G.ended=false;clearEnts();releaseMouseLock();
   Aud.setSiren(0);Aud.setRumble(0);Aud.setHeli(0);
-  $('mName').textContent=S.name;
+  $('mName').textContent=S.name;lbAcctUpdate();
   ecoMenuUpdate();previewWorld();showScreen('s-menu');
 }
 function syncSettingsUI(){
@@ -6174,6 +6220,13 @@ document.addEventListener('click',function(ev){
   else if(a==='tourFinal')tourFinal();
   else if(a==='tourAgain')tourBegin();
   else if(a==='mp')showScreen('s-mp');
+  else if(a==='lb')lbEnter();
+  else if(a==='lbBack')lbLeave();
+  else if(a==='lbRefresh')lbRefreshAll(true);
+  else if(a==='lbLogin')lbSubmitAuth(false);
+  else if(a==='lbRegister')lbSubmitAuth(true);
+  else if(a==='lbShowAuth')lbToggleAuth(true);
+  else if(a==='lbLogout')lbLogout();
   else if(a==='srvList')showScreen('s-servers');
   else if(a==='srvRefresh'){MP.listKey='';var sl=$('srvList');if(!sl.firstChild)sl.innerHTML='<div class="srvempty">Loading servers...</div>';srvFetch();}
   else if(a==='srvCreate')showScreen('s-create');
@@ -6259,6 +6312,159 @@ $('specCamBtn').addEventListener('click',function(){if(isSpectating())cycleSpecC
 /* gameplay camera: only TPS <-> FPS of the player's own character */
 function toggleCam(){G.cam=(G.cam==='tps')?'fps':'tps';G.camInit=false;camReset();}
 $('joinCode').addEventListener('keydown',function(e){if(e.key==='Enter')joinRoom();});
+
+/* ================= GLOBAL LEADERBOARD (online, PostgreSQL behind server.js) =================
+   - The leaderboard, accounts and PTS live ONLY on the server database. This browser stores just the login token.
+   - The client never sends PTS: the server watches the online Tournament itself and adds the PTS once it is finished. */
+var LB={tok:lsGet('srt_tok',''),user:lsGet('srt_user',''),seq:0,loading:false,pollT:null,topOk:false,me:null,gain:null,authBusy:false,lastTop:null};
+function apiBase(){var u=serverUrl();return u?u.replace(/^wss:/i,'https:').replace(/^ws:/i,'http:'):'';}
+/* tiny XHR helper: cb(err, status, data). err is a ready-to-show message for network problems. */
+function lbReq(method,path,body,cb){
+  var base=apiBase();
+  if(!base){cb('No backend server configured. Open Multiplayer > Connection settings and enter your server URL.',0,null);return;}
+  var x=new XMLHttpRequest(),done=false,tm;
+  function fin(err,st,data){if(done)return;done=true;clearTimeout(tm);cb(err,st,data);}
+  try{x.open(method,base+path,true);}catch(e){fin('Invalid server URL.',0,null);return;}
+  x.setRequestHeader('Accept','application/json');
+  if(body)x.setRequestHeader('Content-Type','application/json');
+  if(LB.tok)x.setRequestHeader('Authorization','Bearer '+LB.tok);
+  x.timeout=10000;
+  tm=setTimeout(function(){try{x.abort();}catch(e){}fin('The server took too long to answer. Check your connection and try again.',0,null);},11000);
+  x.onload=function(){var d=null;try{d=JSON.parse(x.responseText);}catch(e){}fin(null,x.status,d);};
+  x.onerror=function(){fin('Cannot reach the leaderboard server. Check your internet connection (Wi-Fi / mobile data) and press Refresh.',0,null);};
+  x.ontimeout=function(){fin('The server took too long to answer. Check your connection and try again.',0,null);};
+  try{x.send(body?JSON.stringify(body):null);}catch(e){fin('Cannot reach the leaderboard server. Check your internet connection and press Refresh.',0,null);}
+}
+function lbApiMsg(st,d){return (d&&d.msg)||(st===429?'Too many requests. Please wait a moment.':(st>=500?'Server error. Please try again.':'Something went wrong.'));}
+function lbLoggedIn(){return !!(LB.tok&&LB.user);}
+function lbAcctUpdate(){var e=$('mAcct');if(e)e.textContent=lbLoggedIn()?LB.user:'Not logged in';}
+function lbSetSession(tok,user){
+  LB.tok=tok||'';LB.user=user||'';lsSet('srt_tok',LB.tok);lsSet('srt_user',LB.user);
+  LB.me=null;lbAcctUpdate();lbWsAuth();
+}
+/* send the token to the multiplayer connection (the server reads the account id from the signed token) */
+function lbWsAuth(){mpRaw({k:'auth',tok:LB.tok||''});}
+function lbEnter(){
+  showScreen('s-lb');
+  lbToggleAuth(false);$('lbAuthMsg').textContent='';
+  lbRenderMe();
+  lbRefreshAll(false);
+  clearInterval(LB.pollT);
+  LB.pollT=setInterval(function(){
+    if($('s-lb').classList.contains('hide')){clearInterval(LB.pollT);LB.pollT=null;return;}
+    if(!document.hidden)lbRefreshAll(false);
+  },30000);
+}
+function lbLeave(){clearInterval(LB.pollT);LB.pollT=null;LB.seq++;lbSetLoading(false);showScreen('s-menu');}
+function lbSetLoading(on){
+  LB.loading=on;var b=$('lbRefresh');if(b){b.disabled=on;b.style.opacity=on?'.6':'';}
+}
+/* Top 100 + my own rank are two separate light requests that run in parallel */
+function lbRefreshAll(manual){
+  if(LB.loading&&!manual)return;
+  var seq=++LB.seq,pending=1,box=$('lbList');
+  lbSetLoading(true);
+  if(!LB.lastTop)box.innerHTML='<div class="lbmsg"><span class="lbspin"></span>Loading leaderboard...</div>';
+  else $('lbUpd').textContent='Updating...';
+  function one(){pending--;if(pending<=0&&seq===LB.seq)lbSetLoading(false);}
+  lbReq('GET','/api/leaderboard',null,function(err,st,d){
+    if(seq!==LB.seq)return;
+    if(err||st!==200||!d||!d.top){
+      var msg=err||lbApiMsg(st,d);
+      if(LB.lastTop){$('lbUpd').textContent='Could not update: '+msg;toast(msg,3500);}
+      else box.innerHTML='<div class="lbmsg err">'+escapeHtml(msg)+'<br><br><button class="btn inline" data-act="lbRefresh" type="button">&#8635; TRY AGAIN</button></div>';
+    }else{LB.lastTop=d;lbRenderTop(d);}
+    one();
+  });
+  if(lbLoggedIn()){
+    pending++;
+    lbReq('GET','/api/leaderboard/me',null,function(err,st,d){
+      if(seq!==LB.seq)return;
+      if(err){LB.me={err:err};}
+      else if(st===401){lbSetSession('','');lbRenderTop(LB.lastTop);$('lbAuthMsg').textContent='Your login expired. Please log in again.';lbToggleAuth(true);}
+      else if(st!==200||!d)LB.me={err:lbApiMsg(st,d)};
+      else LB.me={rank:d.rank,pts:d.pts,username:d.username,total:d.total};
+      lbRenderMe();one();
+    });
+  }else{LB.me=null;lbRenderMe();}
+}
+function lbRenderTop(d){
+  var box=$('lbList');if(!d){return;}
+  var me=lbLoggedIn()?LB.user.toLowerCase():'',h='',i,r,medal;
+  if(!d.top.length){box.innerHTML='<div class="lbmsg">No ranked players yet.<br>Be the first: finish an online Tournament!</div>';}
+  else{
+    h='<table class="res"><tr><th class="rk">#</th><th>Player</th><th class="pt">PTS</th></tr>';
+    for(i=0;i<d.top.length;i++){
+      r=d.top[i];medal=r.rank===1?'&#129351;':(r.rank===2?'&#129352;':(r.rank===3?'&#129353;':r.rank));
+      h+='<tr'+(me&&String(r.username).toLowerCase()===me?' class="me"':'')+'><td class="rk">'+medal+'</td><td class="un">'+escapeHtml(r.username)+'</td><td class="pt">'+(r.pts|0)+'</td></tr>';
+    }
+    box.innerHTML=h+'</table>';
+  }
+  var t=new Date(d.updatedAt||Date.now());
+  $('lbUpd').textContent='Updated '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2)+':'+('0'+t.getSeconds()).slice(-2)+' • '+(d.total|0)+' ranked player'+((d.total|0)===1?'':'s');
+}
+/* bottom bar: only MY OWN rank + PTS (players outside the Top 100 never see anybody else below #100) */
+function lbRenderMe(){
+  var el=$('lbMe');if(!el)return;
+  if(!lbLoggedIn()){
+    el.className='off';
+    el.innerHTML='<div style="font-size:13px;margin-bottom:6px">Log in to see <b>My Rank</b> and <b>My PTS</b>.</div><button class="btn inline" data-act="lbShowAuth" type="button">LOG IN / CREATE ACCOUNT</button>';
+    return;
+  }
+  el.className='';
+  var m=LB.me,body;
+  if(!m)body='<div class="lbmsg" style="padding:6px"><span class="lbspin"></span>Loading your rank...</div>';
+  else if(m.err)body='<div class="lbmsg err" style="padding:6px">'+escapeHtml(m.err)+'</div>';
+  else body='<div class="mrow"><div>MY RANK<b>'+(m.rank?('#'+m.rank):'Unranked')+'</b></div><div>MY PTS<b>'+(m.pts|0)+'</b></div></div>'+
+    (m.rank?'':'<div class="who">Finish an online Tournament to enter the ranking.</div>');
+  el.innerHTML=body+'<div class="who">Logged in as <b>'+escapeHtml(LB.user)+'</b> &bull; <button type="button" data-act="lbLogout" style="background:none;border:0;padding:0;color:#9fd2ff;text-decoration:underline;cursor:pointer;font-size:12px;font-family:inherit">Log out</button></div>';
+}
+function lbToggleAuth(show){
+  var b=$('lbAuthBox');if(!b)return;
+  b.classList.toggle('hide',!show);
+  if(show){$('lbUser').value=LB.user||$('lbUser').value;if(!IS_TOUCH)setTimeout(function(){try{($('lbUser').value?$('lbPass'):$('lbUser')).focus();}catch(e){}},30);}
+}
+function lbAuthMsg(msg,ok){var e=$('lbAuthMsg');e.textContent=msg||'';e.className=ok?'ok':'';}
+function lbSubmitAuth(reg){
+  if(LB.authBusy)return;
+  var u=($('lbUser').value||'').trim(),p=$('lbPass').value||'';
+  if(!/^[A-Za-z0-9_]{3,16}$/.test(u)){lbAuthMsg('Username must be 3-16 characters: letters, numbers or underscore.');return;}
+  if(p.length<6){lbAuthMsg('Password must be at least 6 characters.');return;}
+  LB.authBusy=true;lbAuthMsg(reg?'Creating account...':'Logging in...',true);
+  var saveTok=LB.tok;LB.tok='';   /* no stale token on login / register */
+  lbReq('POST',reg?'/api/auth/register':'/api/auth/login',{username:u,password:p},function(err,st,d){
+    LB.authBusy=false;LB.tok=saveTok;
+    if(err){lbAuthMsg(err);return;}
+    if((st===200||st===201)&&d&&d.token&&d.user){
+      $('lbPass').value='';
+      lbSetSession(d.token,d.user.username);
+      lbAuthMsg('');lbToggleAuth(false);
+      toast(reg?'Account created. You are logged in as '+d.user.username:'Logged in as '+d.user.username,2800);
+      lbRenderMe();lbRefreshAll(true);
+    }else lbAuthMsg(lbApiMsg(st,d));
+  });
+}
+function lbLogout(){lbSetSession('','');lbToggleAuth(false);lbAuthMsg('');lbRenderTop(LB.lastTop);lbRenderMe();toast('Logged out',1800);}
+/* ---- messages pushed by the server after an online Tournament ---- */
+function lbOnGain(m){
+  var g=m.gained|0,t=m.total|0;
+  LB.gain={gained:g,total:t,at:Date.now()};LB.me=null;
+  toast('🏆 +'+g+' Global PTS! Your total: '+t,5000);
+}
+function lbOnNote(m){
+  var c=m.code;
+  if(c==='login')toast('Log in (Main Menu > Global Leaderboard) before a Tournament to save your PTS globally.',6000);
+  else if(c==='limit')toast('Global PTS limit reached for now (too many Tournaments in a short time).',5000);
+  else if(c==='nodb')toast('The Global Leaderboard is offline on this server. PTS were not saved.',5000);
+  else if(c==='error')toast('Could not save your PTS to the Global Leaderboard. Please contact the host admin.',5000);
+}
+function lbGainHtml(){
+  var g=LB.gain;
+  if(!g||Date.now()-g.at>20*60*1000)return '';
+  return '<div class="logbox"><div class="lbl">GLOBAL LEADERBOARD</div>&#127942; <b>+'+g.gained+' PTS</b> added to your account <b>'+escapeHtml(LB.user||'')+'</b> &mdash; total <b>'+g.total+'</b> PTS</div>';
+}
+['lbUser','lbPass'].forEach(function(id){var e=$(id);if(e)e.addEventListener('keydown',function(ev){ev.stopPropagation();if(ev.key==='Enter'){ev.preventDefault();lbSubmitAuth(false);}});});
+lbAcctUpdate();
 
 /* ================= POINTER LOCK (PC only) =================
    Locked  : Gameplay (alive) and Spectator (player TPS/FPS, tsunami cam, free cam).

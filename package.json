@@ -1,17 +1,19 @@
 {
   "name": "speedrun-escape-from-tsunami",
-  "version": "2.0.0",
-  "description": "SpeedRun: Escape From Tsunami - game HTML + online multiplayer backend (WebSocket relay, server.js LITE)",
+  "version": "3.0.0",
+  "description": "SpeedRun: Escape From Tsunami - game HTML + online multiplayer backend (WebSocket relay) + Global Leaderboard (PostgreSQL)",
   "main": "server.js",
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node test/run.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "pg": "^8.13.0",
     "ws": "^8.18.0"
   },
   "license": "UNLICENSED"
